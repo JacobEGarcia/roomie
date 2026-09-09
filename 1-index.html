@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ROOMIE - an AI that lives on your desktop</title>
 <link rel="icon" href="favicon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
     --win-x:7%; --win-y:2%; --win-w:46%; --win-h:48%;   /* snow window rect, tuned to bg art */
@@ -16,7 +13,7 @@
     --amber:#ffb35c; --night-blue:#0d1b2e;
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none}
-  html,body{height:100%;overflow:hidden;background:#000;font-family:'Nunito',system-ui,sans-serif}
+  html,body{height:100%;overflow:hidden;background:#000;font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif}
   #scene{position:fixed;inset:0;overflow:hidden}
   #room{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   /* day/night tint */
@@ -314,7 +311,7 @@ $('#voicetgl').addEventListener('click',e=>{e.stopPropagation();voiceArmed=true;
 if(localStorage.getItem('roomie.voice')==='off'){const t=$('#voicetgl');if(t)t.textContent='\uD83D\uDD07';}
 
 /* ---------- companion brain ---------- */
-const A={idle:'idle.png',wave:'wave.png',read:'read.png',sleep:'sleep.png',tea:'tea.png',stretch:'stretch.png',phone:'phone.png',prone:'2-prone.png',lookup:'3-lookup.png',yawn:'4-yawn.png',kiss:'5-kiss.png',squat:'6-squat.png'};
+const A={idle:'idle.png',wave:'wave.png',read:'read.png',sleep:'sleep.png',tea:'tea.png',stretch:'stretch.png',phone:'phone.png',prone:'8-prone.png',lookup:'9-lookup.png',yawn:'10-yawn.png',kiss:'11-kiss.png',squat:'12-squat.png'};
 const fu=$('#fu'),fuimg=$('#fuimg');
 function setPose(p,extraClass){S.mode=p;fu.className='';
   if(extraClass)fu.classList.add(extraClass);
