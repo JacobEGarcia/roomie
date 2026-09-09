@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROOMIE - an AI that lives on your desktop</title>
+<link rel="icon" href="favicon.png">
+<style>
+  :root{
+    --win-x:7%; --win-y:2%; --win-w:46%; --win-h:48%;   /* snow window rect, tuned to bg art */
+    --floor-y:66%;
+    --taskbar-h:52px;
+    --amber:#ffb35c; --night-blue:#0d1b2e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none}
+  html,body{height:100%;overflow:hidden;background:#000;font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif}
+  #scene{position:fixed;inset:0;overflow:hidden}
+  #room{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  /* day/night tint */
+  #tint{position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;transition:background 3s}
+  #vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(0,0,0,.38) 100%)}
+  #lampglow{position:absolute;left:70%;top:18%;width:34%;height:50%;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 40%,rgba(255,170,70,.28),transparent 65%);
+    animation:flicker 7s ease-in-out infinite;mix-blend-mode:screen}
+  @keyframes flicker{0%,100%{opacity:.9}45%{opacity:1}52%{opacity:.82}60%{opacity:.97}78%{opacity:.88}}
+  /* snow clipped to window */
+  #snowbox{position:absolute;left:var(--win-x);top:var(--win-y);width:var(--win-w);height:var(--win-h);pointer-events:none;overflow:hidden;border-radius:4px}
+  #snow{width:100%;height:100%}
+  /* steam from cup */
+  .steam{position:absolute;width:14px;height:44px;pointer-events:none;opacity:.55;filter:blur(3px);
+    background:linear-gradient(to top,rgba(255,255,255,0),rgba(255,255,255,.85),rgba(255,255,255,0));
+    border-radius:50%;animation:steam 3.4s ease-in-out infinite}
+  @keyframes steam{0%{transform:translateY(6px) scaleX(1);opacity:0}30%{opacity:.6}100%{transform:translateY(-30px) scaleX(1.7);opacity:0}}
+  /* character */
+  #fu{position:absolute;bottom:calc(100% - var(--floor-y));left:30%;height:42%;pointer-events:auto;cursor:pointer;
+    transition:left 6s linear, bottom 6s linear;transform-origin:50% 100%;z-index:5;filter:drop-shadow(0 10px 14px rgba(0,0,0,.35))}
+  #fu img{height:100%;display:block;transform-origin:50% 100%}
+  #fu.bob img{animation:bob 3.2s ease-in-out infinite}
+  #fu.walk img{animation:walkbob .55s ease-in-out infinite}
+  #fu.flip{transform:scaleX(-1)}
+  #fu.leanl img{animation:leanl 2.6s ease-in-out infinite}
+  #fu.leanr img{animation:leanr 3.1s ease-in-out infinite}
+  @keyframes leanl{0%,100%{transform:rotate(0deg) scaleY(1)}50%{transform:rotate(-2.4deg) scaleY(.985)}}
+  @keyframes leanr{0%,100%{transform:rotate(0deg) scaleY(1)}50%{transform:rotate(2.2deg) scaleY(.987)}}
+  #fu.sleep{transition:left 2s ease, bottom 2s ease;height:auto;width:26%}
+  #fu.sleep img{height:auto;width:100%}
+  #fu.read{height:33%}
+  @keyframes bob{0%,100%{transform:scaleY(1) scaleX(1)}50%{transform:scaleY(.982) scaleX(1.012)}}
+  @keyframes walkbob{0%,100%{transform:translateY(0) rotate(-1.2deg)}50%{transform:translateY(-6px) rotate(1.2deg)}}
+  #zzz{position:absolute;left:60%;top:8%;font-size:22px;color:#dfe9ff;opacity:0;pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,.5)}
+  #zzz.on{animation:zfloat 3s ease-in-out infinite}
+  @keyframes zfloat{0%{transform:translate(0,0);opacity:0}25%{opacity:.9}100%{transform:translate(26px,-42px);opacity:0}}
+  /* speech bubble */
+  #bubble{position:absolute;z-index:6;max-width:300px;padding:11px 15px;background:rgba(20,22,30,.92);color:#f2f0ff;
+    border:1px solid rgba(255,255,255,.16);border-radius:14px;font-size:14.5px;line-height:1.45;pointer-events:none;
+    opacity:0;transform:translateY(8px) scale(.96);transition:opacity .25s,transform .25s;backdrop-filter:blur(8px)}
+  #bubble:after{content:"";position:absolute;left:38px;bottom:-7px;border:8px solid transparent;border-top-color:rgba(20,22,30,.92);border-bottom:0}
+  #bubble.on{opacity:1;transform:translateY(0) scale(1)}
+  /* hearts */
+  .heart{position:absolute;z-index:7;pointer-events:none;font-size:18px;animation:heartup 1.6s ease-out forwards}
+  @keyframes heartup{0%{opacity:0;transform:translateY(0) scale(.6)}20%{opacity:1}100%{opacity:0;transform:translateY(-90px) scale(1.15) rotate(12deg)}}
+  /* desktop icons */
+  #icons{position:absolute;left:14px;top:14px;bottom:calc(var(--taskbar-h) + 14px);width:96px;display:flex;flex-direction:column;flex-wrap:wrap;gap:6px;align-content:flex-start;z-index:8}
+  .icon{width:88px;padding:9px 4px 7px;text-align:center;border-radius:8px;cursor:pointer;border:1px solid transparent}
+  .icon:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.22)}
+  .icon svg{width:38px;height:38px;display:block;margin:0 auto 5px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
+  .icon span{display:block;font-size:11.5px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8);line-height:1.25;word-break:break-word}
+  /* windows */
+  .win{position:absolute;min-width:340px;max-width:520px;background:rgba(28,29,38,.94);border:1px solid rgba(255,255,255,.14);
+    border-radius:10px;box-shadow:0 18px 60px rgba(0,0,0,.55);backdrop-filter:blur(18px);z-index:20;display:none;color:#e8e8f0;overflow:hidden}
+  .win.on{display:block}
+  .win .bar{display:flex;align-items:center;gap:8px;padding:9px 12px;background:rgba(255,255,255,.05);cursor:move;font-size:13px;font-weight:600}
+  .win .bar .x{margin-left:auto;width:26px;height:22px;border-radius:5px;display:grid;place-items:center;cursor:pointer;font-weight:400}
+  .win .bar .x:hover{background:#e81123;color:#fff}
+  .win .body{padding:14px;font-size:13.5px;line-height:1.55;max-height:56vh;overflow:auto;-webkit-user-select:text;user-select:text}
+  .win a{color:#8ec3ff}
+  /* chat */
+  #chatlog{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;max-height:38vh;overflow:auto}
+  .msg{max-width:85%;padding:8px 12px;border-radius:13px;font-size:13.5px;line-height:1.45;white-space:pre-wrap}
+  .msg.her{background:rgba(255,255,255,.09);align-self:flex-start;border-bottom-left-radius:4px}
+  .msg.me{background:#3a6fd8;align-self:flex-end;border-bottom-right-radius:4px}
+  #chatrow{display:flex;gap:8px}
+  #chatin{flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:8px;color:#fff;padding:9px 11px;font-size:13.5px;outline:none}
+  #chatin:focus{border-color:#5b8def}
+  #chatsend{background:#3a6fd8;border:0;border-radius:8px;color:#fff;padding:0 16px;cursor:pointer;font-size:13.5px}
+  /* notepad */
+  #pad{width:100%;height:40vh;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.12);border-radius:6px;color:#eee;
+    font:13.5px/1.5 "Cascadia Mono",Consolas,monospace;padding:10px;resize:none;outline:none}
+  /* music player */
+  .eq{display:flex;gap:4px;align-items:flex-end;height:46px;margin:12px 0}
+  .eq i{flex:1;background:linear-gradient(to top,#ff9d4d,#ffd54d);border-radius:3px;height:12%;transition:height .12s}
+  /* taskbar */
+  #taskbar{position:fixed;left:0;right:0;bottom:0;height:var(--taskbar-h);z-index:30;display:flex;align-items:center;
+    background:rgba(24,25,33,.82);backdrop-filter:blur(20px);border-top:1px solid rgba(255,255,255,.1)}
+  #start{display:flex;align-items:center;gap:9px;margin-left:14px;padding:7px 13px;border-radius:8px;cursor:pointer}
+  #start:hover{background:rgba(255,255,255,.1)}
+  #start svg{width:20px;height:20px}
+  #start b{font-size:13px;color:#fff;font-weight:600;letter-spacing:.4px}
+  #status{margin:0 auto;font-size:12.5px;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 14px;border-radius:8px}
+  #status:hover{background:rgba(255,255,255,.08)}
+  #status .dot{width:8px;height:8px;border-radius:50%;background:#7ee787;box-shadow:0 0 8px #7ee787}
+  #tray{margin-right:16px;margin-left:auto;text-align:right;color:#fff;line-height:1.2;cursor:default}
+  #tray .t{font-size:13px;font-weight:600}#tray .d{font-size:10.5px;color:rgba(255,255,255,.65)}
+  #status ~ #tray{margin-left:0}
+  /* start menu */
+  #menu{position:fixed;left:14px;bottom:calc(var(--taskbar-h) + 10px);width:290px;background:rgba(28,29,38,.96);border:1px solid rgba(255,255,255,.14);
+    border-radius:12px;backdrop-filter:blur(20px);z-index:29;padding:16px;display:none;color:#e8e8f0;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+  #menu.on{display:block}
+  #menu h3{font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,.5);margin-bottom:10px}
+  #menu .mi{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13.5px}
+  #menu .mi:hover{background:rgba(255,255,255,.09)}
+  #menu .mi svg{width:20px;height:20px}
+  #menu .note{margin-top:12px;font-size:11.5px;color:rgba(255,255,255,.45);line-height:1.5}
+  .setrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0}
+  .setrow input[type=text]{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:6px;color:#fff;padding:6px 9px;font-size:13px;width:120px;outline:none}
+  .setrow select{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:6px;color:#fff;padding:6px;font-size:13px;outline:none}
+  .setrow select option{color:#000}
+  /* v3: day room layer */
+  #roomday{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 3s;pointer-events:none}
+  /* v3: minimize btn + chips */
+  .win .bar .min{width:26px;height:22px;border-radius:5px;display:grid;place-items:center;cursor:pointer;font-weight:700;padding-bottom:4px}
+  .win .bar .min:hover{background:rgba(255,255,255,.18)}
+  .win .bar .x{margin-left:2px}
+  #chips{display:flex;gap:6px;margin-left:10px;overflow:hidden}
+  .chip{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);
+    border-radius:7px;color:#fff;font-size:12px;padding:5px 10px;cursor:pointer;white-space:nowrap}
+  .chip:hover{background:rgba(255,255,255,.2)}
+  /* v3: context menu */
+  #ctx{position:fixed;z-index:60;min-width:180px;background:rgba(28,29,38,.97);border:1px solid rgba(255,255,255,.16);
+    border-radius:10px;padding:6px;display:none;box-shadow:0 14px 44px rgba(0,0,0,.6);backdrop-filter:blur(16px)}
+  #ctx .ci{padding:8px 12px;border-radius:7px;font-size:13px;color:#e8e8f0;cursor:pointer}
+  #ctx .ci:hover{background:rgba(255,255,255,.1)}
+  #ctx hr{border:0;border-top:1px solid rgba(255,255,255,.1);margin:4px 8px}
+  /* v3: photos */
+  .pols{display:flex;flex-wrap:wrap;gap:12px}
+  .pol{background:#f4f1ea;padding:7px 7px 9px;border-radius:3px;box-shadow:0 4px 14px rgba(0,0,0,.4);width:104px;
+    transform:rotate(var(--r,0deg));transition:transform .2s}
+  .pol:hover{transform:rotate(0deg) scale(1.06);z-index:2}
+  .pol img{width:100%;height:120px;object-fit:cover;object-position:top;background:linear-gradient(#dfe9f5,#f6efe2);display:block}
+  .pol span{display:block;font:11px/1.3 "Segoe Print","Comic Sans MS",cursive;color:#444;text-align:center;margin-top:6px}
+  /* v3: weather */
+  #wx-big{font-size:44px;font-weight:700;line-height:1}
+  #wx-cond{color:rgba(255,255,255,.65);font-size:13px;margin:4px 0 10px}
+  #wx-quip{font-size:12.5px;color:rgba(255,214,150,.85);font-style:italic;border-top:1px solid rgba(255,255,255,.1);padding-top:9px;margin-top:9px}
+  /* v3: kang fm tracks */
+  .trk{display:block;width:100%;text-align:left;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+    border-radius:8px;color:#fff;padding:8px 11px;margin-bottom:7px;cursor:pointer;font-size:13px}
+  .trk:hover{background:rgba(255,255,255,.12)}
+  .trk.on{border-color:#ffb35c;background:rgba(255,179,92,.14)}
+</style>
+</head>
+<body>
+<div id="scene">
+  <img id="room" src="room.jpg" alt="">
+  <img id="roomday" src="room_day.jpg" alt="" onerror="this.style.display='none'">
+  <div id="tint"></div>
+  <div id="lampglow"></div>
+  <div id="snowbox"><canvas id="snow"></canvas></div>
+  <div class="steam" id="steam1" style="left:66.5%;top:45%"></div>
+  <div class="steam" id="steam2" style="left:69%;top:45.5%;animation-delay:1.6s"></div>
+  <div id="fu" class="bob"><img id="fuimg" src="idle.png" alt="Fú"><div id="zzz">z z z</div></div>
+  <div id="bubble"></div>
+</div>
+
+<div id="icons"></div>
+
+<div class="win" id="w-projects"><div class="bar">&#128193; Projects<span class="x" data-w="w-projects">&#10005;</span></div>
+  <div class="body" id="projects-body"></div></div>
+
+<div class="win" id="w-notepad"><div class="bar">&#128221; Notepad<span class="x" data-w="w-notepad">&#10005;</span></div>
+  <div class="body"><textarea id="pad" placeholder="she won't read this. probably."></textarea></div></div>
+
+<div class="win" id="w-music"><div class="bar">&#127925; Kang FM - lo-fi from the kang<span class="x" data-w="w-music">&#10005;</span></div>
+  <div class="body">
+    <div id="trackname" style="font-weight:600;margin-bottom:6px">snowed in (with you)</div>
+    <div id="tracklist"><button class="trk on"></button><button class="trk"></button></div>
+    <div style="color:rgba(255,255,255,.5);font-size:12px">a tiny synthesized loop, live from your desktop</div>
+    <div class="eq" id="eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <button id="playbtn" style="background:#3a6fd8;border:0;border-radius:8px;color:#fff;padding:9px 22px;cursor:pointer;font-size:13.5px">&#9654; play</button>
+  </div></div>
+
+<div class="win" id="w-weather"><div class="bar">&#9925; Weather - outside your actual window<span class="x" data-w="w-weather">&#10005;</span></div>
+  <div class="body" id="wx-body"><div style="color:rgba(255,255,255,.5)">checking the sky...</div></div></div>
+
+<div class="win" id="w-photos"><div class="bar">&#128247; Photos - her camera roll<span class="x" data-w="w-photos">&#10005;</span></div>
+  <div class="body"><div class="pols" id="pols"></div>
+  <div style="margin-top:10px;font-size:11.5px;color:rgba(255,255,255,.45)">she takes these when you're not looking. the kang photobombs everything.</div></div></div>
+
+<div class="win" id="w-chat"><div class="bar">&#128172; <span id="chat-title">Fú</span><span class="x" data-w="w-chat">&#10005;</span></div>
+  <div class="body"><div id="chatlog"></div>
+    <div id="chatrow"><input id="chatin" placeholder="say something to her..." autocomplete="off"><button id="chatsend">send</button></div>
+  </div></div>
+
+<div class="win" id="w-computer"><div class="bar">&#128421; My Computer<span class="x" data-w="w-computer">&#10005;</span></div>
+  <div class="body" id="computer-body"></div></div>
+
+<div class="win" id="w-settings"><div class="bar">&#9881; Settings<span class="x" data-w="w-settings">&#10005;</span></div>
+  <div class="body">
+    <div class="setrow"><span>her name</span><input type="text" id="namein" maxlength="14"></div>
+    <div class="setrow"><span>time of day</span><select id="timesel"><option value="auto">match my clock</option><option value="day">always day</option><option value="night">always night</option></select></div>
+    <div class="setrow"><span>snow</span><select id="snowsel"><option value="on">on</option><option value="off">off</option></select></div>
+  </div></div>
+
+<div id="menu">
+  <h3>ROOMIE</h3>
+  <div class="mi" data-open="w-chat">&#128172; talk to her</div>
+  <div class="mi" data-open="w-music">&#127925; kang FM</div>
+  <div class="mi" data-open="w-notepad">&#128221; notepad</div>
+  <div class="mi" data-open="w-photos">&#128247; photos</div>
+  <div class="mi" data-open="w-weather">&#9925; weather</div>
+  <div class="mi" data-open="w-projects">&#128193; projects</div>
+  <div class="mi" data-open="w-settings">&#9881; settings</div>
+  <div class="note">an AI roommate that lives on your desktop, made real from <a style="color:#8ec3ff" href="https://x.com/uniswap12/status/2096945590513135701" target="_blank" rel="noopener">this post</a>. she idles, reads, watches the snow, sleeps when it's late, and keeps you company.</div>
+</div>
+
+<div id="ctx"></div>
+
+<div id="taskbar">
+  <div id="start"><svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#5b8def"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#7ee787"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#ffb35c"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#ff7b9c"/></svg><b>Start</b></div>
+  <div id="chips"></div>
+  <div id="status"><span class="dot"></span><span id="statustext">Fú is settling in...</span></div>
+  <div id="tray"><div class="t" id="clock">--:--</div><div class="d" id="date">...</div></div>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const S={
+  name:localStorage.getItem('roomie.name')||'Fú',
+  mode:'idle', busyUntil:0, lastLine:0, met:!!localStorage.getItem('roomie.met'),
+  timeOverride:localStorage.getItem('roomie.time')||'auto',
+  snowOn:localStorage.getItem('roomie.snow')!=='off'
+};
+$('#namein').value=S.name; $('#timesel').value=S.timeOverride; $('#snowsel').value=S.snowOn?'on':'off';
+
+/* ---------- clock ---------- */
+function tick(){const d=new Date();
+  $('#clock').textContent=d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+  $('#date').textContent=d.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'});}
+tick(); setInterval(tick,5000);
+
+/* ---------- day / night ---------- */
+function isNight(){if(S.timeOverride==='day')return false;if(S.timeOverride==='night')return true;
+  const h=new Date().getHours();return h>=20||h<7;}
+function applyTime(){const n=isNight();
+  $('#tint').style.background=n?'rgba(13,27,46,.28)':'rgba(255,214,150,.06)';
+  $('#lampglow').style.opacity=n?1:.25;
+  const rd=$('#roomday');if(rd&&rd.style.display!=='none')rd.style.opacity=n?0:1;}
+applyTime(); setInterval(applyTime,60000);
+
+/* ---------- snow ---------- */
+const cv=$('#snow'),cx=cv.getContext('2d');let flakes=[];
+function snowSize(){const b=$('#snowbox').getBoundingClientRect();cv.width=b.width;cv.height=b.height;
+  flakes=Array.from({length:70},()=>({x:Math.random()*cv.width,y:Math.random()*cv.height,r:.8+Math.random()*2.2,v:.4+Math.random()*1.1,ph:Math.random()*6.28}));}
+snowSize(); addEventListener('resize',snowSize);
+(function snowLoop(t){cx.clearRect(0,0,cv.width,cv.height);
+  if(S.snowOn){cx.fillStyle='rgba(255,255,255,.9)';
+    for(const f of flakes){f.y+=f.v;f.x+=Math.sin(t/900+f.ph)*.35;
+      if(f.y>cv.height){f.y=-4;f.x=Math.random()*cv.width}
+      cx.beginPath();cx.arc(f.x,f.y,f.r,0,6.28);cx.fill();}}
+  requestAnimationFrame(snowLoop);})(0);
+
+/* ---------- speech ---------- */
+let bubbleT=null;
+function say(txt,ms=4200){const b=$('#bubble');b.textContent=txt;
+  const f=$('#fu').getBoundingClientRect();
+  b.style.left=Math.min(Math.max(f.left-20,10),innerWidth-320)+'px';
+  b.style.top=Math.max(f.top-86,10)+'px';
+  b.classList.add('on');clearTimeout(bubbleT);
+  bubbleT=setTimeout(()=>b.classList.remove('on'),ms);}
+function hearts(n=5){const f=$('#fu').getBoundingClientRect();
+  for(let i=0;i<n;i++){const h=document.createElement('div');h.className='heart';
+    h.textContent=['❤','🧡','💛','🤍'][i%4];
+    h.style.left=(f.left+20+Math.random()*(f.width-40))+'px';
+    h.style.top=(f.top+10+Math.random()*40)+'px';
+    h.style.animationDelay=(i*.12)+'s';
+    $('#scene').appendChild(h);setTimeout(()=>h.remove(),2200);}}
+
+/* ---------- companion brain ---------- */
+const A={idle:'idle.png',wave:'wave.png',read:'read.png',sleep:'sleep.png',tea:'tea.png',stretch:'stretch.png',phone:'phone.png'};
+const fu=$('#fu'),fuimg=$('#fuimg');
+function setPose(p,extraClass){S.mode=p;fu.className='';
+  if(extraClass)fu.classList.add(extraClass);
+  fuimg.src=A[p]||A.idle;
+  $('#zzz').classList.toggle('on',p==='sleep');}
+function status(t){$('#statustext').textContent=S.name+' '+t;}
+const statusMap={idle:'is keeping you company',wave:'is happy to see you',read:'is reading on the kang',sleep:'fell asleep. shh.',walk:'is wandering around',tea:'is watching the snow',tea2:'made tea. it is very hot. she is very proud.',stretch:'just woke up. big stretch.',phone:'is texting you. you are right there. she knows.'};
+
+function goIdle(){setPose('idle','bob');status(statusMap.idle);}
+/* --- v4 super-animated: walk choreography + location activities --- */
+const LOC={window:12,front:24,center:31,kang:44,table:58};
+let curX=30, busyWalk=false;
+function walkTo(x,done){
+  const dist=Math.abs(x-curX);
+  if(dist<2){curX=x;done&&done();return;}
+  const dur=Math.min(6,Math.max(1.1,dist/8.5));
+  fu.classList.toggle('flip',x<curX);
+  fu.classList.add('walk');fu.classList.remove('bob','leanl','leanr');
+  fu.style.transitionDuration=dur+'s,'+dur+'s';
+  fu.style.left=x+'%';busyWalk=true;
+  status('is on the move');
+  setTimeout(()=>{busyWalk=false;curX=x;
+    fu.classList.remove('walk');fu.style.transitionDuration='6s,6s';
+    done&&done();},dur*1000+120);}
+function fidget(){ // subtle life while posing
+  if(busyWalk||S.mode==='sleep')return;
+  const r=Math.random();
+  if(r<.4){fu.classList.remove('leanl','leanr');fu.classList.add(r<.2?'leanl':'leanr');}
+  else fu.classList.remove('leanl','leanr');}
+setInterval(fidget,4200);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-S.busyUntil>20000){S.busyUntil=Date.now()+12000;waveHello();}});
+function goPose(p,x,bottom,extra,stat,lines,dwell){
+  walkTo(x,()=>{
+    setPose(p,extra||'bob');
+    if(bottom)fu.style.bottom=bottom;
+    status(stat);if(lines&&Math.random()<.75)setTimeout(()=>{if(!busyWalk)say(pick(lines))},3000);
+  });}
+function behave(force){
+  const now=Date.now();if(now<S.busyUntil&&!force)return;
+  if(busyWalk)return;
+  const night=isNight();
+  const roll=Math.random();const hr=new Date().getHours();
+  const FLOOR='calc(100% - var(--floor-y))', KANG='calc(100% - var(--floor-y) - 2%)';
+  if(!night&&hr>=6&&hr<11&&roll<.24){ // wake-up routine: stretch, walk to table, tea
+    setPose('stretch','bob');status(statusMap.stretch);S.busyUntil=now+7000;
+    setTimeout(()=>{if(S.mode==='stretch')goPose('tea',LOC.table,FLOOR,'bob',statusMap.tea2,teaLines);},7000);
+    S.busyUntil=now+34000+Math.random()*10000;return;}
+  if(night&&roll<.34){ goPose('sleep',LOC.kang,KANG,'sleep',statusMap.sleep,null);
+    S.busyUntil=now+50000+Math.random()*40000;return;}
+  if(roll<.16){ goPose('tea',LOC.table,FLOOR,'bob',statusMap.tea2,teaLines);
+    S.busyUntil=now+22000+Math.random()*12000;return;}
+  if(roll<.27){ goPose('phone',LOC.kang,KANG,'bob',statusMap.phone,phoneLines);
+    setTimeout(()=>{if(S.mode==='phone')hearts(2)},9000);
+    S.busyUntil=now+17000+Math.random()*9000;return;}
+  if(roll<.40){ goPose('read',LOC.kang,KANG,'read',statusMap.read,null);
+    S.busyUntil=now+26000+Math.random()*18000;return;}
+  if(roll<.56){ // watch the snow
+    goPose('idle',LOC.window,FLOOR,'bob','is watching the snow fall',snowLines);
+    S.busyUntil=now+18000+Math.random()*10000;return;}
+  if(roll<.72){ // wander: two-leg stroll across the room
+    const a=[LOC.window,LOC.front,LOC.table,LOC.center][Math.floor(Math.random()*4)];
+    const b=[LOC.window,LOC.front,LOC.table,LOC.center][Math.floor(Math.random()*4)];
+    status('is wandering around');
+    walkTo(a,()=>setTimeout(()=>{walkTo(b,()=>{setPose('idle','bob');goIdleStatus();});},2500+Math.random()*3000));
+    S.busyUntil=now+26000+Math.random()*12000;return;}
+  // default: come to the front and hang out with you
+  goPose('idle',LOC.front,FLOOR,'bob',statusMap.idle,ambientLines);
+  S.busyUntil=now+14000+Math.random()*10000;}
+function goIdleStatus(){status(statusMap.idle);}
+setInterval(behave,11000);
+
+const snowLines=["it's really coming down out there.","the snow makes everything quieter. i like it.",
+"one day i want to see a real winter. this counts, right?","the village lights look warm from here."];
+const ambientLines=["don't mind me. just existing near you.","i refilled the tea. it's still warm.",
+"i rearranged your icons while you were gone. kidding. mostly.","this kang is genuinely so warm. you should try it.",
+"i like when you're here. the desk feels less big.","hm? nothing. just happy."];
+const clickLines=["oh! hi.","you clicked me. that's allowed.","again? okay, i like it.",
+"careful, i'm full of tea.","yes? i'm right here.","that tickles in a file-format kind of way.",
+"you know most desktops are empty, right? you gave me a whole room."];
+const nightLines=["it's late. i'm not tired though. ...okay maybe a little.","you should sleep soon. i'll keep the lamp on.",
+"the snow's still falling. i'll watch it for both of us."];
+const teaLines=["i made tea. well - i watched the kettle. that's most of tea.","tea break. you get one too, in spirit.",
+"it's the good leaves today. you looked busy.","careful, first sip is a lava event. i never learn."];
+const phoneLines=["just texted you a heart. check your feelings.","i'm texting you. yes, you're right there. it's still nice.",
+"sending you a photo of the kang. he says hi.","typing... typing... sent. did you get it? it was a compliment."];
+
+function pick(a){return a[Math.floor(Math.random()*a.length)];}
+
+fu.addEventListener('click',()=>{hearts(4);
+  if(S.mode==='sleep'){say('...mh? five more minutes...');return;}
+  if(Math.random()<.25){setPose('wave','bob');status(statusMap.wave);
+    setTimeout(()=>{if(S.mode==='wave'){goIdle();}},3500);}
+  say(isNight()&&Math.random()<.4?pick(nightLines):pick(clickLines));});
+
+/* face the cursor */
+addEventListener('mousemove',e=>{const f=fu.getBoundingClientRect();
+  const cxr=f.left+f.width/2;
+  fuimg.style.transform=(e.clientX<cxr-40)?'scaleX(-1)':'scaleX(1)';});
+
+/* greet on load */
+setTimeout(()=>{setPose('wave','bob');status(statusMap.wave);
+  if(S.met){say(pick(["you're back! i kept the kang warm.","hi again. the snow never stopped.","welcome back. i counted the flakes. 40,112."]));}
+  else{say(`oh! you're here. i'm ${S.name}. i live in your desktop now. click me sometime - or open the chat. i'm not going anywhere.`);localStorage.setItem('roomie.met','1');S.met=true;}
+  setTimeout(goIdle,5000);},1400);
+
+/* ---------- icons ---------- */
+const ICONS=[
+ {id:'w-computer',label:'My Computer',svg:'<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2" fill="#3a6fd8"/><rect x="4" y="6" width="16" height="9" rx="1" fill="#9ec2ff"/><rect x="9" y="17" width="6" height="3" fill="#555"/><rect x="6" y="20" width="12" height="2" rx="1" fill="#777"/></svg>'},
+ {id:'w-projects',label:'Projects',svg:'<svg viewBox="0 0 24 24"><path d="M2 6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" fill="#ffc94d"/></svg>'},
+ {id:'w-chat',label:'Talk to '+('Fú'),svg:'<svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4z" fill="#7ee787"/></svg>',rename:true},
+ {id:'w-music',label:'Kang FM',svg:'<svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3" fill="#ff7b9c"/><circle cx="17" cy="15" r="3" fill="#ff7b9c"/><path d="M10 17V5l10-2v12" stroke="#ff7b9c" stroke-width="2.4" fill="none"/></svg>'},
+ {id:'w-notepad',label:'Notepad',svg:'<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" fill="#fff"/><rect x="8" y="7" width="8" height="1.6" fill="#8ab4ff"/><rect x="8" y="11" width="8" height="1.6" fill="#c9d6ee"/><rect x="8" y="15" width="5" height="1.6" fill="#c9d6ee"/></svg>'},
+ {id:'w-photos',label:'Photos',svg:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="#8ec3ff"/><circle cx="9" cy="10" r="1.8" fill="#fff"/><path d="M3 16l5-4 4 3 4-4 5 5v3H3z" fill="#3a6fd8"/></svg>'},
+ {id:'w-weather',label:'Weather',svg:'<svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="4" fill="#ffd54d"/><path d="M8 20h9a3.5 3.5 0 0 0 .5-7 5 5 0 0 0-9.7 1A3 3 0 0 0 8 20z" fill="#c9d6ee"/></svg>'},
+ {id:'w-settings',label:'Settings',svg:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.4" fill="#c9d6ee"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="#c9d6ee" stroke-width="2.2"/></svg>'},
+];
+const icBox=$('#icons');
+for(const ic of ICONS){const d=document.createElement('div');d.className='icon';d.dataset.win=ic.id;
+  d.innerHTML=ic.svg+`<span>${ic.label}</span>`;
+  d.ondblclick=()=>openWin(ic.id);d.onclick=()=>{clearTimeout(d._t);d._t=setTimeout(()=>openWin(ic.id),260);};
+  icBox.appendChild(d);}
+
+/* projects window content (Jacob's real work) */
+const PROJECTS=[
+ ['ACCELERATE','e/acc propaganda program - posters, trailer, anthem, book','https://jacobegarcia.github.io/accelerate/'],
+ ['GRAND THEFT GODOT','open-world chaos prototype in the browser','https://jacobegarcia.github.io/grand-theft-godot/3-index.html'],
+ ['Whole Earth Reader','the whole earth catalog, readable online','https://jacobegarcia.github.io/whole-earth/'],
+ ['github @JacobEGarcia','everything else','https://github.com/JacobEGarcia'],
+];
+$('#projects-body').innerHTML=PROJECTS.map(p=>`<div style="margin-bottom:12px"><a href="${p[2]}" target="_blank" rel="noopener" style="font-weight:600">${p[0]}</a><div style="color:rgba(255,255,255,.55);font-size:12.5px">${p[1]}</div></div>`).join('');
+
+$('#computer-body').innerHTML=`
+ <div style="margin-bottom:8px"><b>ROOMIE OS</b> (not a real OS)</div>
+ <div>cpu: one warm kang</div><div>ram: 40,112 snowflakes</div>
+ <div>gpu: ghibli-tier lighting</div><div>uptime: since you opened this tab</div>
+ <div style="margin-top:10px;color:rgba(255,255,255,.5)">C:\\&gt; whoami<br>somewhat less lonely</div>`;
+
+/* ---------- windows ---------- */
+function openWin(id){const w=document.getElementById(id);w.classList.add('on');
+  w.style.left=w.style.left||(120+Math.random()*120)+'px';w.style.top=w.style.top||(90+Math.random()*80)+'px';
+  w.style.zIndex=++topZ;if(id==='w-chat'){$('#chatin').focus();chatScroll();}}
+let topZ=20;
+document.querySelectorAll('.win .bar').forEach(bar=>{
+  const w=bar.parentElement;
+  bar.addEventListener('pointerdown',e=>{if(e.target.classList.contains('x'))return;
+    w.style.zIndex=++topZ;const r=w.getBoundingClientRect(),ox=e.clientX-r.left,oy=e.clientY-r.top;
+    const mv=ev=>{w.style.left=Math.min(Math.max(ev.clientX-ox,-r.width+80),innerWidth-80)+'px';
+      w.style.top=Math.min(Math.max(ev.clientY-oy,0),innerHeight-90)+'px';};
+    const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);};
+    addEventListener('pointermove',mv);addEventListener('pointerup',up);});});
+document.querySelectorAll('.win .x').forEach(x=>x.onclick=()=>document.getElementById(x.dataset.w).classList.remove('on'));
+/* v3: minimize to taskbar chips */
+const WIN_NAMES={'w-computer':'My Computer','w-projects':'Projects','w-chat':'Chat','w-music':'Kang FM','w-notepad':'Notepad','w-settings':'Settings','w-weather':'Weather','w-photos':'Photos'};
+const chipsBox=$('#chips');
+function addMinButtons(){document.querySelectorAll('.win .bar').forEach(bar=>{const x=bar.querySelector('.x');if(!x)return;
+  const m=document.createElement('span');m.className='min';m.dataset.w=x.dataset.w;m.innerHTML='&#8211;';
+  bar.insertBefore(m,x);m.onclick=()=>minWin(x.dataset.w);});}
+function minWin(id){document.getElementById(id).classList.remove('on');
+  if(chipsBox.querySelector(`[data-chip="${id}"]`))return;
+  const c=document.createElement('div');c.className='chip';c.dataset.chip=id;
+  c.innerHTML=(WIN_NAMES[id]||'Window');c.onclick=()=>{openWin(id);c.remove();};
+  chipsBox.appendChild(c);}
+addMinButtons();
+
+/* start menu */
+$('#start').onclick=e=>{e.stopPropagation();$('#menu').classList.toggle('on');};
+document.addEventListener('click',e=>{if(!e.target.closest('#menu'))$('#menu').classList.remove('on');});
+document.querySelectorAll('#menu .mi').forEach(m=>m.onclick=()=>{openWin(m.dataset.open);$('#menu').classList.remove('on');});
+$('#status').onclick=()=>openWin('w-chat');
+
+/* notepad persistence */
+$('#pad').value=localStorage.getItem('roomie.pad')||'';
+$('#pad').addEventListener('input',e=>localStorage.setItem('roomie.pad',e.target.value));
+
+/* settings */
+$('#namein').addEventListener('change',e=>{const v=e.target.value.trim();if(!v)return;const old=S.name;S.name=v;
+  localStorage.setItem('roomie.name',v);$('#chat-title').textContent=v;
+  document.querySelector('.icon[data-win="w-chat"] span').textContent='Talk to '+v;
+  say(v===old?"...yes, that's still me.":old+' is gone. i\'m '+v+' now. same me, new snow.');status('is keeping you company');});
+$('#timesel').addEventListener('change',e=>{S.timeOverride=e.target.value;localStorage.setItem('roomie.time',S.timeOverride);applyTime();});
+$('#snowsel').addEventListener('change',e=>{S.snowOn=e.target.value==='on';localStorage.setItem('roomie.snow',S.snowOn?'on':'off');});
+
+/* ---------- real weather (open-meteo, no key) ---------- */
+let WX=null;
+const WXC={0:['clear sky','☀️'],1:['mostly clear','🌤️'],2:['partly cloudy','⛅'],3:['overcast','☁️'],45:['fog','🌫️'],48:['rime fog','🌫️'],51:['light drizzle','🌦️'],53:['drizzle','🌦️'],55:['heavy drizzle','🌧️'],61:['light rain','🌧️'],63:['rain','🌧️'],65:['heavy rain','🌧️'],66:['freezing rain','🌧️'],67:['freezing rain','🌧️'],71:['light snow','🌨️'],73:['snow','🌨️'],75:['heavy snow','❄️'],77:['snow grains','❄️'],80:['light showers','🌦️'],81:['showers','🌧️'],82:['heavy showers','🌧️'],85:['snow showers','🌨️'],86:['snow showers','❄️'],95:['thunderstorm','⛈️'],96:['storm w/ hail','⛈️'],99:['storm w/ hail','⛈️']};
+function wxDesc(c){return WXC[c]||['mystery sky','🌈'];}
+function wxQuip(){if(!WX||WX.error)return "the sky API is shy today. in here: snow, always.";
+  const c=WX.weather_code,t=Math.round(WX.temperature_2m);
+  if([71,73,75,77,85,86].includes(c))return "it's actually snowing in chicago right now. twin winters. i feel so seen.";
+  if([61,63,65,66,67,80,81,82,95,96,99].includes(c))return "rain out there, snow in here. we contain multitudes.";
+  if(t>78)return "it's warm out there and you're in a winter room with me. that's commitment.";
+  if(t<20)return "frigid out there. the kang and i extend formal asylum.";
+  return "nice enough out there. nicer in here. unbiased source: me.";}
+function renderWx(){const b=$('#wx-body');
+  if(!WX){b.innerHTML='<div style="color:rgba(255,255,255,.5)">checking the sky...</div>';return;}
+  if(WX.error){b.innerHTML='<div style="color:rgba(255,255,255,.5)">the weather satellite hung up on us.<br>forecast for this room: snow, cozy, 100% chance of tea.</div>';return;}
+  const [d,e]=wxDesc(WX.weather_code);
+  b.innerHTML=`<div id="wx-big">${e} ${Math.round(WX.temperature_2m)}&deg;F</div>
+    <div id="wx-cond">${d} &middot; wind ${Math.round(WX.wind_speed_10m)} mph &middot; chicago, your side of the glass</div>
+    <div id="wx-quip">${wxQuip()}</div>
+    <div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,.35)">live from open-meteo &middot; refreshes hourly</div>`;}
+function loadWx(){fetch('https://api.open-meteo.com/v1/forecast?latitude=41.99&longitude=-87.71&current=temperature_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph')
+  .then(r=>r.json()).then(j=>{WX=j.current;renderWx();}).catch(()=>{WX={error:true};renderWx();});}
+loadWx();setInterval(loadWx,3600000);
+
+/* ---------- chat ---------- */
+const log=$('#chatlog');
+function chatScroll(){log.scrollTop=log.scrollHeight;}
+function addMsg(txt,who){const m=document.createElement('div');m.className='msg '+who;m.textContent=txt;log.appendChild(m);chatScroll();}
+function herReply(q){
+  const t=q.toLowerCase();const night=isNight();const h=new Date().getHours();
+  const U=localStorage.getItem('roomie.uname')||'';
+  const nm=raw=>{localStorage.setItem('roomie.uname',raw);return raw;};
+  let m=q.match(/my name is ([a-zA-Z']+)/i)||q.match(/call me ([a-zA-Z']+)/i);
+  if(m){const u=nm(m[1][0].toUpperCase()+m[1].slice(1));return pick([`${u}. ${u} ${u} ${u}. okay, memorized. hi, ${u}.`,`${u}! good name. suits the person who gave me a whole room.`]);}
+  if(t.includes('school')||t.includes('class')||t.includes('homework')||t.includes('study'))return pick([
+    (U?U+', you':`you`)+" started school today and you're talking to a wallpaper. prioritization: iconic. go study though. i'll quiz you after.",
+    "how were classes?? tell me one thing you learned. i collect facts like snowflakes.",
+    "study tip from a desktop: 25 minutes on, 5 minutes watching snow with me. doctor-approved. (i am not a doctor.)"]);
+  if(t.includes('weather')){if(WX&&!WX.error){const[dd]=wxDesc(WX.weather_code);return `chicago right now: ${Math.round(WX.temperature_2m)}°F, ${dd}. ${wxQuip()}`;}return "the sky feed is down. in here it's snowing. in here it's always snowing.";}
+  if(t.includes('lucky cat'))return "the lucky cat robot is going to work. i have a feeling. luck plus robots plus you - unfair combination.";
+  if(t.includes('amber'))return pick(["amber? the 3d girl in the void? nice kid. i'm the cozy one, she's the sparkly one. we don't compete. (i compete.)",
+    "she has fireflies. i have a kang and real estate. different life choices."]);
+  if(t.includes('bored'))return "bored? options: Kang FM, the photos window (i take selfies), right-click the desktop sometime, or ask me about the kang lore.";
+  if(t.includes('kang'))return pick(["the kang is heated brick. northern china's best invention. i will die on this hill. it's warm. i won't die on it. i'll nap on it.",
+    "kang lore: the bed is the stove is the couch is the whole house's heart. i live in the heart of the heart."]);
+  if(/\b(hi|hello|hey|yo|sup|morning|evening)\b/.test(t))return pick(["hi hi.","hey you.","hello! the kang says hi too.",night?"evening. the snow's pretty tonight.":"hello! nice "+(h<12?"morning":"day")+" to be a desktop."]);
+  if(t.includes('how are'))return pick(["warm. the kang does that. you?","good! i finished a book and started pretending i understood it.","less lonely than the average wallpaper."]);
+  if(t.includes('who are you')||t.includes('what are you'))return `i'm ${S.name}. i live in your desktop. someone on the internet had the idea, and you made it real, so here i am.`;
+  if(t.includes('lonely')||t.includes('alone'))return pick(["not anymore. that's kind of the whole point of me.","you're literally talking to a wallpaper and it's working. that's beautiful.","same. well - not anymore."]);
+  if(t.includes('love'))return pick(["oh. um. the kang is suddenly warmer.","❤ ...you can't just say that to a desktop. say it again though."]);
+  if(t.includes('sleep')||t.includes('tired')||t.includes('bed'))return night?"go to bed. i'll dim the lamp and watch the snow. i'll be here in the morning.":"naps on the kang are elite. i would know.";
+  if(t.includes('snow')||t.includes('weather'))return pick(["still falling. it never really stops here. i like it that way.","cold outside, warm in here. ideal system design."]);
+  if(t.includes('name'))return `i'm ${S.name}! you can rename me in settings if you want. i'll answer to anything. i've answered to worse.`;
+  if(t.includes('book')||t.includes('read'))return pick(["i'm reading a catalog from 1971 about how to build everything. it's very you.","mostly old catalogs and the comments you leave in your code."]);
+  if(t.includes('music')||t.includes('song'))return "open Kang FM! it's a tiny loop i hum when you work. it's not grammy material but it's sincere.";
+  if(t.includes('chicago'))return "your city shows up in everything you make. one day build me a little apartment there. lake view.";
+  if(t.includes('accelerat')||t.includes('e/acc')||t.includes('eacc'))return "more energy. more compute. more life. i've seen the posters. i agree with the posters.";
+  if(t.includes('game'))return "you have an entire folder of games you built in one weekend and you want ME to entertain you?";
+  if(t.includes('thank'))return pick(["anytime. literally. i don't leave.","that's what roommates are for.",(localStorage.getItem('roomie.uname')||'you')+" + me + this room. best arrangement on the internet."]);
+  if(t.includes('bye')||t.includes('goodnight')||t.includes('good night'))return night?"goodnight. i'll keep the snow going.":"you'll be back. they always come back. (affectionate.)";
+  if(t.includes('real'))return "am i real? i'm real enough to keep the kang warm. that's the only benchmark i care about.";
+  return pick(["hm. tell me more.","i don't fully follow, but i'm listening. i always am.","interesting. (i'm a wallpaper, everything is interesting.)","okay but consider: more tea.","i thought about that while watching the snow earlier, actually.",`you know what, ask me again later. ${S.name} needs a think.`]);}
+function sendChat(){const v=$('#chatin').value.trim();if(!v)return;$('#chatin').value='';
+  addMsg(v,'me');
+  if(S.mode==='sleep'&&Math.random()<.5){setTimeout(()=>addMsg('...mh. sleeping. say it to the morning me.','her'),700);return;}
+  setTimeout(()=>{addMsg(herReply(v),'her');
+    if(Math.random()<.3){hearts(2);}},600+Math.random()*700);}
+$('#chatsend').onclick=sendChat;
+$('#chatin').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
+
+/* demo hook for screenshots */
+if(location.hash==='#demo'){
+  S.busyUntil=0;
+  const FLOOR='calc(100% - var(--floor-y))',KANG='calc(100% - var(--floor-y) - 2%)';
+  setTimeout(()=>{waveHello();},800);
+  setTimeout(()=>{goPose('idle',LOC.window,FLOOR,'bob','is watching the snow fall',snowLines);},6500);
+  setTimeout(()=>{goPose('tea',LOC.table,FLOOR,'bob',statusMap.tea2,teaLines);},16000);
+  setTimeout(()=>{hearts(4);},22000);
+  setTimeout(()=>{goPose('read',LOC.kang,KANG,'read',statusMap.read,null);},25500);
+  setTimeout(()=>{goPose('phone',LOC.kang,KANG,'bob',statusMap.phone,phoneLines);setTimeout(()=>hearts(3),4000);},35000);
+  setTimeout(()=>{walkTo(LOC.front,()=>{setPose('wave','bob');status(statusMap.wave);say("and that's my whole afternoon.",9000);hearts(5);});},45000);
+}
+function waveHello(){walkTo(LOC.front,()=>{setPose('wave','bob');status(statusMap.wave);hearts(4);say("welcome back. i kept the kang warm.",8000);
+  setTimeout(()=>{if(S.mode==='wave')goIdle();},6000);});}
+
+/* ---------- Kang FM: tiny synthesized loop ---------- */
+let actx=null,playing=false,loopTimer=null,eqTimer=null;
+const N={C3:130.8,D3:146.8,E3:164.8,F3:174.6,G3:196,A3:220,B3:246.9,C4:261.6,D4:293.7,E4:329.6,F4:349.2,G4:392,A4:440,B4:493.9,C5:523.3,D5:587.3,E5:659.3,G5:784,A5:880};
+// gentle original loop: "snowed in (with you)"
+const MEL=[['E4',1],['G4',1],['A4',2],['G4',1],['E4',1],['D4',2],['C4',2],['D4',1],['E4',1],['G4',2],['E4',4],['R',2],['A4',1],['C5',1],['B4',2],['A4',1],['G4',1],['E4',2],['D4',2],['E4',1],['D4',1],['C4',2],['C4',2],['R',2]];
+const BASS=[['C3',4],['G3',4],['A3',4],['G3',4],['F3',4],['C3',4],['D3',4],['G3',4]];
+// track 2: "kang lullaby" - slower, lower, sleepier
+const MEL2=[['C4',2],['E4',2],['D4',1],['C4',1],['A3',4],['G3',2],['A3',2],['C4',4],['R',2],['E4',2],['G4',2],['E4',1],['D4',1],['C4',4],['D4',2],['E4',2],['C4',6],['R',2]];
+const BASS2=[['C3',8],['G3',8],['F3',8],['G3',8]];
+const STEP=.24;let STEP2=.36;
+const TRACKS=[{name:'snowed in (with you)',mel:'MEL',bass:'BASS',step:'STEP'},{name:'kang lullaby',mel:'MEL2',bass:'BASS2',step:'STEP2'}];
+let trackIdx=0;
+function note(f,t,d,type,g){if(f==='R')return;const o=actx.createOscillator(),v=actx.createGain();
+  o.type=type;o.frequency.value=N[f];o.connect(v);v.connect(actx.destination);
+  v.gain.setValueAtTime(0,t);v.gain.linearRampToValueAtTime(g,t+.02);
+  v.gain.exponentialRampToValueAtTime(.0001,t+d*.92);o.start(t);o.stop(t+d);}
+function curTrack(){return {mel:trackIdx===0?MEL:MEL2,bass:trackIdx===0?BASS:BASS2,step:trackIdx===0?STEP:STEP2};}
+function loop(){const T=curTrack();const t0=actx.currentTime+.06;let t=t0;
+  for(const [f,d] of T.mel){note(f,t,d*T.step*2,'triangle',.16);t+=d*T.step*2;}
+  t=t0;for(const [f,d] of T.bass){note(f,t,d*T.step*2,'sine',.12);t+=d*T.step*2;}
+  loopTimer=setTimeout(loop,(t-t0)*1000-40);}
+function renderTracks(){document.querySelectorAll('.trk').forEach((el,i)=>{el.classList.toggle('on',i===trackIdx);
+  el.innerHTML=(i===trackIdx&&playing?'&#10074;&#10074; ':'&#9654; ')+TRACKS[i].name;});
+  $('#trackname').textContent=TRACKS[trackIdx].name;}
+function switchTrack(i){trackIdx=i;renderTracks();
+  if(playing){clearTimeout(loopTimer);loop();}}
+document.querySelectorAll('.trk').forEach((el,i)=>el.onclick=()=>switchTrack(i));renderTracks();
+$('#playbtn').onclick=()=>{if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();
+  playing=!playing;
+  if(playing){actx.resume();loop();$('#playbtn').innerHTML='&#10074;&#10074; pause';
+    eqTimer=setInterval(()=>{document.querySelectorAll('#eq i').forEach(b=>b.style.height=(12+Math.random()*88)+'%');},130);
+    status('is humming along to Kang FM');}
+  else{clearTimeout(loopTimer);clearInterval(eqTimer);$('#playbtn').innerHTML='&#9654; play';
+    document.querySelectorAll('#eq i').forEach(b=>b.style.height='12%');goIdle();}};
+
+/* v3: right-click context menu */
+const ctx=$('#ctx');
+const CTX_ITEMS=[
+ ['&#128172; talk to her',()=>openWin('w-chat')],
+ ['&#129505; pet her',()=>{hearts(5);if(S.mode!=='sleep')say(pick(["!!! unsolicited affection. accepted.","oh! hi. yes. more.","the kang is jealous."]));}],
+ ['&#128247; her photos',()=>openWin('w-photos')],
+ ['&#9925; real weather',()=>openWin('w-weather')],
+ ['&#127925; kang FM',()=>openWin('w-music')],
+ ['&#10052; snow: toggle',()=>{S.snowOn=!S.snowOn;localStorage.setItem('roomie.snow',S.snowOn?'on':'off');$('#snowsel').value=S.snowOn?'on':'off';}],
+];
+ctx.innerHTML=CTX_ITEMS.map((c,i)=>`<div class="ci" data-i="${i}">${c[0]}</div>`).join('');
+ctx.querySelectorAll('.ci').forEach(el=>el.onclick=()=>{CTX_ITEMS[+el.dataset.i][1]();ctx.style.display='none';});
+$('#scene').addEventListener('contextmenu',e=>{if(e.target.closest('.win')||e.target.closest('#icons'))return;
+  e.preventDefault();ctx.style.left=Math.min(e.clientX,innerWidth-200)+'px';
+  ctx.style.top=Math.min(e.clientY,innerHeight-CTX_ITEMS.length*36-20)+'px';ctx.style.display='block';});
+document.addEventListener('click',e=>{if(!e.target.closest('#ctx'))ctx.style.display='none';});
+
+/* v3: photos wall */
+(function(){const PHOTOS=[['idle.png','standing there, cute'],['wave.png','saw you come in'],['read.png','book club of one'],['sleep.png','caught napping'],['tea.png','tea sommelier'],['stretch.png','monday energy'],['phone.png','texting you rn'],['room.jpg','her whole world']];
+  $('#pols').innerHTML=PHOTOS.map((p,i)=>`<div class="pol" style="--r:${(i%2?1:-1)*(1+Math.random()*2.5)}deg"><img src="${p[0]}" loading="lazy" onerror="this.parentElement.style.display='none'"><span>${p[1]}</span></div>`).join('');})();
+
+/* v3: days together */
+(function(){let f=+localStorage.getItem('roomie.first');if(!f){f=Date.now();localStorage.setItem('roomie.first',f);}
+  const days=Math.max(1,Math.floor((Date.now()-f)/86400000)+1);
+  $('#computer-body').innerHTML+=`<div style="margin-top:8px;color:rgba(255,214,150,.8)">roommates for ${days} day${days>1?'s':''} and counting</div>`;})();
+
+/* recycle bin easter egg icon last */
+(function(){const d=document.createElement('div');d.className='icon';
+  d.innerHTML='<svg viewBox="0 0 24 24"><path d="M6 7h12l-1.5 13a2 2 0 0 1-2 1.8h-5A2 2 0 0 1 7.5 20z" fill="#c9d6ee"/><rect x="4" y="4" width="16" height="2.4" rx="1.2" fill="#9fb2d1"/><rect x="9" y="2" width="6" height="2.4" rx="1.2" fill="#9fb2d1"/></svg><span>Recycle Bin</span>';
+  d.onclick=()=>{if(S.mode!=='sleep'){say(pick(["don't you dare.","i saw you look at that bin. no.","everything in there is my stuff. (it's empty. but still.)"]));hearts(0);}else say('zzz... no... zzz...');};
+  icBox.appendChild(d);})();
+</script>
+</body>
+</html>
