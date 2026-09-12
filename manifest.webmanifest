@@ -1,0 +1,16 @@
+{
+  "name": "ROOMIE - Fu lives on your desktop",
+  "short_name": "ROOMIE",
+  "description": "An AI roommate who lives on your desktop: she lounges on the kang, reads, makes tea, watches the snow, and notices when you show up.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#262022",
+  "theme_color": "#262022",
+  "icons": [
+    { "src": "8-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "9-icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "10-icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
